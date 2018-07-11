@@ -1,0 +1,268 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sat May 19 16:12:53 2018
+
+@author: jayaditya.sirasani
+"""
+#Library Imports
+import random
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import tkinter as tk
+from tkinter import *
+from tkinter.filedialog import askopenfilename
+import tkinter.messagebox
+#Declaring some Global variables
+LARGE_FONT= ("Verdana", 12)
+x=np.linspace(0,24,24)
+markers=['.',',','o','v','^','<','>','1','2','3','4','8','s','p','P','*','h','H','+','x','X','D','d','|','_']#'TICKLEFT','TICKRIGHT','TICKUP','TICKDOWN']#,'CARETLEFT','CARETRIGHT','CARETUP','CARETDOWN','CARETLEFTBASE','CARETRIGHTBASE','CARETUPBASE']
+Residential=np.array([0.559202059,0.501746645,0.445118588,0.421125207,0.420297849,0.446865233,0.455414598,0.563522706,0.658668873,0.752160324,0.960562603,0.919378562,0.913403199,0.874793161,0.900533186,0.873138445,0.933167862,1,0.970031256,0.919378562,0.889409818,0.911748483,0.857694429,0.668137525])
+Commercial=np.roll(Residential,6)
+Rating=[3,4,5,6]
+
+def ScenarioGenerator(Transformers,Customers):
+    #Creation of Transformer Assets
+    TransformerNumber=int(Transformers)
+    Transformer=list(range(1,TransformerNumber+1))
+    global TransformerFrame
+    TransformerFrame=pd.DataFrame(Transformer,columns=['Transformer-ID'])
+    TransformerFrame['Transformer-ID']='Transformer' + TransformerFrame['Transformer-ID'].astype(str)
+    TransformerFrame.index = np.arange(1, len(TransformerFrame)+1)
+    TransformerFrame['Marker']=""
+    TransformerFrame['Rating']=""
+    TransformerFrame['Lat']=""
+    TransformerFrame['Long']=""
+    marker_selection=random.sample(markers,len(TransformerFrame.index)+1) #Selection a random selection from the marker list
+    TransformerFrame.iloc[:,1]=pd.DataFrame(marker_selection) #Adding to the transformer frame
+    rating_selection=random.choices(Rating,k=len(TransformerFrame.index)+1) #Selection a random selection from the rating list
+    TransformerFrame.iloc[:,2]=pd.DataFrame(rating_selection) #Adding to transformer frame
+    for i in range(len(TransformerFrame.index)):
+        TransformerFrame.iloc[i,3]=np.random.randint(10,101) #Transformer Latitutde
+        TransformerFrame.iloc[i,4]=np.random.randint(10,101) #Transformer Longitude
+        plt.scatter(TransformerFrame.iloc[i,3],TransformerFrame.iloc[i,4],color='red',marker=TransformerFrame.iloc[i,1]) #Making a plot of each Transformer Asset
+    #####################################Customer Data Generation##########################################
+    CustomerNumber=int(Customers)
+    Customer=list(range(1,CustomerNumber+1))
+    global CustomerFrame
+    CustomerFrame=pd.DataFrame(Customer,columns=['Customer-ID'])
+    CustomerFrame['Customer-ID']='Customer' + CustomerFrame['Customer-ID'].astype(str)
+    CustomerFrame.index = np.arange(1, len(CustomerFrame)+1)
+    CustomerFrame['Lat']=""
+    CustomerFrame['Long']=""
+    CustomerFrame['Connection-1']=""
+    CustomerFrame['Connection-2']=""
+    CustomerFrame['Connection-3']=""
+    CustomerFrame['Marker']=""
+    CustomerWaveFrame=pd.DataFrame()
+    #function to return 3 closest transformer
+    def Closest(CLat,CLong):
+        TempDistanceArray=[]
+        TempIDArray=[]
+        IDArray=[]
+        global TransformerFrame
+        for row in TransformerFrame.itertuples():
+            TempDistanceArray.append(np.abs(CLat-row[4])+np.abs(CLong-row[5])) #Using Manhatten Distance, as we're assuming a uniform grid 
+            TempIDArray.append(row[1])
+        TempDistanceNPArray=np.array(TempDistanceArray)
+        for i in TempDistanceNPArray.argsort()[:3]:
+            IDArray.append(TempIDArray[i])
+        return IDArray
+    #End of Function to find 3 closest transformer
+    for i in range(len(CustomerFrame.index)):
+        CustomerFrame.iloc[i,1]=np.random.randint(10,101)#Customer Latitude
+        CustomerFrame.iloc[i,2]=np.random.randint(10,101)#Customer Longitude
+        CustomerFrame.iloc[i,3:6]=Closest(CustomerFrame.iloc[i,1],CustomerFrame.iloc[i,2])#Connection of the Closest 3 Transformer
+        TempFrame=TransformerFrame.loc[TransformerFrame['Transformer-ID'] == CustomerFrame.iloc[i,3]]
+        CustomerFrame.iloc[i,6]=TempFrame.iloc[0,1]
+        plt.scatter(CustomerFrame.iloc[i,1],CustomerFrame.iloc[i,2],color='blue',marker=CustomerFrame.iloc[i,6])
+        if i%2==0:#Adding Residential Load Pattern to the customer at even number
+            CustomerWaveFrame=CustomerWaveFrame.append(pd.DataFrame(Residential).transpose())
+        else:        #Adding the Commercial Load Pattern to the customer at odd number
+            CustomerWaveFrame=CustomerWaveFrame.append(pd.DataFrame(Commercial).transpose())
+    CustomerWaveFrame.index=CustomerFrame.index
+    CustomerFrame=pd.concat([CustomerFrame,CustomerWaveFrame],join='inner',axis=1)
+    #################Shows Geographic scatter of the transformers and customers #################################################
+def MapGenerator():
+    plt.show()
+#TransformerLoadCalculator takes input of hour and recalculates the from that hour
+def TransformerLoadCalculator(hour):
+    ##########Code to get Transformer Waves as sum of attached Customer Waves################################################
+    def Summer(TransformerID):
+        global CustomerFrame
+        TWaveFrame=CustomerFrame.loc[CustomerFrame['Connection-1'] == TransformerID]
+        TWaveFrame=TWaveFrame.iloc[:,7:] 
+        STWaveFrame=pd.DataFrame(TWaveFrame.sum()).transpose()
+        return STWaveFrame
+    #############################################################################################################################
+    global TransformerFrame
+    #Drop the values from corresponding hour in TransformerFrame
+    TransformerFrame=TransformerFrame.iloc[:,:5+hour]
+    global TransformerWaveFrame
+    TransformerWaveFrame=pd.DataFrame()
+    for i in range(len(TransformerFrame.index)):
+        TransformerWaveFrame=TransformerWaveFrame.append(Summer(TransformerFrame.iloc[i,0])) #Sending the transformer-ID to the summer function
+    TransformerWaveFrame.index=TransformerFrame.index
+    TransformerWaveFrame=TransformerWaveFrame.iloc[:,hour:]
+    TransformerFrame=pd.concat([TransformerFrame,TransformerWaveFrame],join='inner',axis=1) #Change to drop the values before the set hour in TransformerWaveFrame
+    ######################End of  consumption patterns of the transformers####################################
+def TransformerLoadGrapher(hour,initial):
+    #Plotting of Usage Patterns
+    global TransformerFrame
+    TransformerGraphFrame=TransformerFrame.iloc[:,5:]
+    ax =TransformerGraphFrame.transpose().plot(title='Hour-'+str(hour),legend='True',ylim=[0,15])
+    ax.legend(list(TransformerFrame.iloc[:,0]))
+    ax.set_xlabel("Time in hours")
+    ax.set_ylabel("kVA")
+    if initial==0:
+        ax.get_figure().savefig('Initial.png')
+        plt.show()
+    else:
+        ax.get_figure().savefig(str(hour)+'.png')
+
+def CustomerTransfer(hour,TransformerID,Load):#function to iterate over the customers connected to the Transformer at that hour
+    global CustomerFrame
+    global TransformerFrame
+    Limit=float(TransformerFrame.loc[TransformerFrame['Transformer-ID'] == TransformerID,'Rating'])
+    TransferAmount=float(Load)-float(Limit)
+    CustomerTransferFrame=CustomerFrame.loc[CustomerFrame['Connection-1'] == TransformerID]
+    CustomerTransferFrame=CustomerTransferFrame.sort_values(hour,axis=0,ascending=False) #Sorting Customers of the particular transformer
+    for row in CustomerTransferFrame.itertuples():
+        if TransferAmount<0: break
+        CustomerLoad=row[hour+8]#Customer Load at the hour
+        Connection2=row[5] #Second closest transformer
+        Connection2Load=float(TransformerFrame.loc[TransformerFrame['Transformer-ID']==Connection2][hour])#Corresponding Transformer2 Load at hour
+        Connection3=row[6]#Third closest transformer
+        Connection3Load=float(TransformerFrame.loc[TransformerFrame['Transformer-ID']==Connection3][hour]) #Corresponding Transformer3 Load at hour
+        #For transfer from T-1 to T-2
+        if (Connection2Load+CustomerLoad)<Limit:
+            TransferAmount=TransferAmount-CustomerLoad #Cutting the customer load from TransferAmount
+            CustomerFrame.loc[row[0],'Connection-1'],CustomerFrame.loc[row[0],'Connection-2']=CustomerFrame.loc[row[0],'Connection-2'],CustomerFrame.loc[row[0],'Connection-1']                  #Swapping the Customer connection transformers
+            CustomerFrame.loc[row[0],'Marker']=str(TransformerFrame.loc[TransformerFrame['Transformer-ID']==Connection2,'Marker']) #function to change the marker
+            #function to update the Transformer load from that hour
+            TransformerLoadCalculator(hour)
+            Operationtext="At Hour-"+str(hour)+" Switching "+str(row[1])+" from "+TransformerID+" to "+Connection2+"."
+            printSomething(Operationtext)
+            text_file = open("Operations.txt", "a")
+            text_file.write('\n'+Operationtext)
+            text_file.close()
+        #For transfer from T-1 to T-3   
+        elif(Connection3Load+CustomerLoad)<Limit:
+            TransferAmount=TransferAmount-CustomerLoad #Cutting the customer load from TransferAmount
+            CustomerFrame.loc[row[0],'Connection-2'],CustomerFrame.loc[row[0],'Connection-3']=CustomerFrame.loc[row[0],'Connection-3'],CustomerFrame.loc[row[0],'Connection-2'] 
+            CustomerFrame.loc[row[0],'Connection-1'],CustomerFrame.loc[row[0],'Connection-2']=CustomerFrame.loc[row[0],'Connection-2'],CustomerFrame.loc[row[0],'Connection-1']
+            CustomerFrame.loc[row[0],'Marker']=str(TransformerFrame.loc[TransformerFrame['Transformer-ID']==Connection3,'Marker']) #function to change the marker
+            #function to update the Transformer load from that hour
+            TransformerLoadCalculator(hour)
+            Operationtext="At Hour-"+str(hour)+" Switching "+str(row[1])+" from "+TransformerID+" to "+Connection3+"."
+            printSomething(Operationtext)
+            text_file = open("Operations.txt", "a")
+            text_file.write(Operationtext)
+            text_file.close()
+#function to print the message to the GUI
+def printSomething(Message):
+    label = Label(app, text= Message)
+    label.pack()
+
+#function to do check transfers for every hour
+def Transfer():
+    for hour in range(24): #Run the Algo for every hour
+        global TransformerFrame
+        TransformerFrame=TransformerFrame.sort_values(hour,axis=0,ascending=False)#Sorting in Descending as per that hour rating
+        for row in TransformerFrame.itertuples():
+            if row[6+hour]>row[3]: #Comparing load to rating
+                CustomerTransfer(hour,row[1],row[6+hour]) #hour,Transformer-ID,TransformerLoad
+        TransformerLoadGrapher(hour,1)
+        HourFrame=pd.DataFrame(['Hour-'+str(hour)])
+        HourFrame.to_csv("Customer.csv",mode='a',index=False)
+        HourFrame.to_csv("Transformer.csv",mode='a',index=False)
+        CustomerFrame.to_csv("Customer.csv",mode='a')
+        TransformerFrame.to_csv("Transformer.csv",mode='a')
+
+###########################################################################################################################
+###########################################################################################################################
+###########################################################################################################################
+def GUIdoNothing(): tk.messagebox.showinfo("Error","Feature Under Construction")#print("Doing Nothing")
+def GUIcreate_window(): window = tk.Tk() 
+def GUIScenarioGenerator(): 
+    ScenarioGenerator(Transformers.get(),Customers.get()) #Creation of transformer assets and customers and customer loading
+    TransformerLoadCalculator(0) #Calculation of Transformer Loading as sum of loads of connected transformers
+    CustomerFrame.to_csv("InitialCustomer.csv") #writing that data to the 
+    TransformerFrame.to_csv("InitialTransformer.csv")
+
+def GUIMapGenerator(): MapGenerator()
+def GUIInitialLoadProfile(): TransformerLoadGrapher(0,0)
+def GUITransfer(): Transfer()
+class LoadTransfer(tk.Tk):
+    def __init__(self, *args, **kwargs):        
+        tk.Tk.__init__(self, *args, **kwargs)
+        container = tk.Frame(self)
+        container.pack(side="top", fill="both", expand = True)
+        container.grid_rowconfigure(0, weight=1)
+        container.grid_columnconfigure(0, weight=1)
+        self.frames = {}
+        for F in (StartPage,PageOne,PageTwo):
+            frame = F(container, self)
+            self.frames[F] = frame
+            frame.grid(row=0, column=0, sticky="nsew")
+        self.show_frame(StartPage)
+    def show_frame(self, cont):
+        frame = self.frames[cont]
+        frame.tkraise()        
+class StartPage(tk.Frame):
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self,parent)
+#Row-0        
+        label = tk.Label(self, text="Home", font=LARGE_FONT)
+        label.grid(row=0,column=0)
+#Row-1
+        tk.Button(self, text="Scenario Creation",command=lambda: controller.show_frame(PageOne)).grid(row=1,column=0)
+        
+class PageOne(tk.Frame):
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self, parent)
+#Row-0
+        tk.Label(self, text="Scenario Creation", font=LARGE_FONT).grid(row=0,column=1)
+#Row-1
+        tk.Label(self, text='Enter No of Transformers').grid(row=1, column=0)
+        global Transformers
+        Transformers = tk.StringVar()
+        tk.Entry(self, textvariable=Transformers).grid(row=1, column=1)
+#Row-2
+        tk.Label(self, text='Enter No of Customers').grid(row=2, column=0)
+        global Customers
+        Customers = tk.StringVar()
+        tk.Entry(self, textvariable=Customers).grid(row=2, column=1)
+        tk.Button(self, text='Enter', command=GUIScenarioGenerator).grid(row=2, column=2)
+#Row-3        
+        tk.Button(self, text='GIS Map', command=GUIMapGenerator).grid(row=3, column=0)
+        tk.Button(self, text='Initial Load Profile', command=GUIInitialLoadProfile).grid(row=3, column=1)
+#Row-4 Basically left blank to show Row-5 as part of navigation
+        tk.Label(self, text="", font=LARGE_FONT).grid(row=4,column=1)
+#Row-Last
+        tk.Button(self, text="Home",command=lambda: controller.show_frame(StartPage)).grid(row=5,column=0)
+        tk.Button(self, text="Next",command=lambda: controller.show_frame(PageTwo)).grid(row=5,column=2)
+
+class PageTwo(tk.Frame):
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self, parent)
+        tk.Label(self, text="Hourly Page", font=LARGE_FONT).grid(row=0,column=1)
+        tk.Button(self, text='Load Transfer', command=GUITransfer).grid(row=2, column=2)
+#Row-5
+        tk.Button(self, text="Previous",command=lambda: controller.show_frame(PageOne)).grid(row=5,column=0)
+
+#App Instance
+app = LoadTransfer()
+app.title("Asset Clustering")
+menu =  Menu(app)
+app.config(menu=menu)
+subMenu = Menu(menu)
+menu.add_cascade(label="File",menu=subMenu)
+subMenu.add_command(label="New", command=GUIcreate_window)
+subMenu.add_command(label="Open", command=GUIdoNothing)
+subMenu.add_command(label="Restart", command=GUIdoNothing)
+subMenu.add_command(label="Exit", command=GUIdoNothing)
+editMenu = Menu(menu)
+menu.add_cascade(label = "Help", menu=editMenu)
+editMenu.add_command(label="Help", command=GUIdoNothing)
+app.mainloop()
